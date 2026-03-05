@@ -4,7 +4,7 @@
 
 Generate production-ready MCP servers from OpenAPI specs in one command.
 
-<!-- ![Demo](demo.gif) -->
+![Demo](docs/demo.gif)
 
 ## Quick Start
 
@@ -30,12 +30,6 @@ cd output && pip install -e .
 - Template override support with `--template-dir`
 - Config precedence: CLI > env (`MCP_TOOLBOX_*`) > `pyproject.toml` (`[tool.mcp_toolbox]`) > defaults
 - Optional watch mode for local specs (`mcp-toolbox watch`)
-
-## Current Limitations
-
-- `oneOf` / `anyOf` are mapped to Python unions but complex discriminator behavior is still best-effort.
-- XML/custom media types are not deeply modeled (JSON/form flows are primary).
-- OAuth2 client-credentials generation provides scaffold/env wiring; full token lifecycle automation is left to integrators.
 
 ## Example Generated Output
 
@@ -103,6 +97,12 @@ python -m pytest -q
 | OpenAPI validation + parsing pipeline | ✅ | manual | partial |
 | FastMCP-ready async server scaffold | ✅ | manual | ❌ |
 | Customizable templates | ✅ | n/a | limited |
+
+## Current Limitations
+
+- `oneOf` / `anyOf` are mapped to Python unions but complex discriminator behavior is still best-effort.
+- XML/custom media types are not deeply modeled (JSON/form flows are primary).
+- OAuth2 client-credentials generation provides scaffold/env wiring; full token lifecycle automation is left to integrators.
 
 ## Contributing
 
