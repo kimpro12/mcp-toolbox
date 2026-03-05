@@ -1,0 +1,118 @@
+"""Implementation for tool `{{ tool.name }}`."""
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+import httpx
+{% if tool_response_model_imports %}from ..models import {{ tool_response_model_imports | join(", ") }}
+{% endif %}{% if tool.structured_output %}from pydantic import TypeAdapter
+{% endif %}
+from ..client import request_with_retry
+
+
+class AppContextProtocol(Protocol):
+    """Protocol view of app context consumed by tool implementations."""
+
+    client: httpx.AsyncClient
+    max_retries: int
+    backoff_seconds: float
+    retry_unsafe_methods: bool
+
+
+{% if tool.params %}async def {{ tool.name }}_impl(
+    ctx: AppContextProtocol,
+{% for param in tool.params %}    {{ param.python_name }}: Any{% if not loop.last %},{% endif %}
+{% endfor %}) -> Any:
+{% else %}async def {{ tool.name }}_impl(ctx: AppContextProtocol) -> Any:
+{% endif %}    """{{ tool.description }}"""
+
+    path = "{{ tool.path }}"
+{% for p in tool.params if p.location.value == "path" %}    path = path.replace("{{ '{' }}{{ p.name }}{{ '}' }}", str({{ p.python_name }}))
+{% endfor %}
+    request_kwargs: dict[str, object] = {}
+
+{% set query_params = tool.params | selectattr("location.value", "equalto", "query") | list %}{% if query_params %}    params: dict[str, object] = {}
+{% for p in query_params %}{% if p.required %}    params["{{ p.name }}"] = {{ p.python_name }}
+{% else %}    if {{ p.python_name }} is not None:
+        params["{{ p.name }}"] = {{ p.python_name }}
+{% endif %}{% endfor %}    if params:
+        request_kwargs["params"] = params
+{% endif %}
+{% set header_params = tool.params | selectattr("location.value", "equalto", "header") | list %}{% if header_params %}    headers: dict[str, str] = {}
+{% for p in header_params %}{% if p.required %}    headers["{{ p.name }}"] = str({{ p.python_name }})
+{% else %}    if {{ p.python_name }} is not None:
+        headers["{{ p.name }}"] = str({{ p.python_name }})
+{% endif %}{% endfor %}    if headers:
+        request_kwargs["headers"] = headers
+{% endif %}
+{% set cookie_params = tool.params | selectattr("location.value", "equalto", "cookie") | list %}{% if cookie_params %}    cookies: dict[str, str] = {}
+{% for p in cookie_params %}{% if p.required %}    cookies["{{ p.name }}"] = str({{ p.python_name }})
+{% else %}    if {{ p.python_name }} is not None:
+        cookies["{{ p.name }}"] = str({{ p.python_name }})
+{% endif %}{% endfor %}    if cookies:
+        request_kwargs["cookies"] = cookies
+{% endif %}
+{% set body_params = tool.params | selectattr("location.value", "equalto", "body") | list %}{% if body_params %}{% if tool.request_body_content_type == "multipart/form-data" %}    data_body: dict[str, object] = {}
+    files_body: dict[str, object] = {}
+{% for p in body_params %}{% if p.python_name == "body" %}{% if p.required %}    request_kwargs["data"] = body
+{% else %}    if body is not None:
+        request_kwargs["data"] = body
+{% endif %}{% else %}{% if p.required %}{% if "bytes" in p.python_type %}    files_body["{{ p.name }}"] = ("{{ p.name }}.bin", {{ p.python_name }})
+{% else %}    data_body["{{ p.name }}"] = str({{ p.python_name }})
+{% endif %}{% else %}    if {{ p.python_name }} is not None:
+{% if "bytes" in p.python_type %}        files_body["{{ p.name }}"] = ("{{ p.name }}.bin", {{ p.python_name }})
+{% else %}        data_body["{{ p.name }}"] = str({{ p.python_name }})
+{% endif %}{% endif %}{% endif %}{% endfor %}    if data_body:
+        request_kwargs["data"] = data_body
+    if files_body:
+        request_kwargs["files"] = files_body
+{% elif tool.request_body_content_type == "application/x-www-form-urlencoded" %}    data_body: dict[str, object] = {}
+{% for p in body_params %}{% if p.python_name == "body" %}{% if p.required %}    request_kwargs["data"] = body
+{% else %}    if body is not None:
+        request_kwargs["data"] = body
+{% endif %}{% else %}{% if p.required %}    data_body["{{ p.name }}"] = {{ p.python_name }}
+{% else %}    if {{ p.python_name }} is not None:
+        data_body["{{ p.name }}"] = {{ p.python_name }}
+{% endif %}{% endif %}{% endfor %}    if data_body:
+        request_kwargs["data"] = data_body
+{% else %}    json_body: dict[str, object] = {}
+{% for p in body_params %}{% if p.python_name == "body" %}{% if p.required %}    request_kwargs["json"] = body
+{% else %}    if body is not None:
+        request_kwargs["json"] = body
+{% endif %}{% else %}{% if p.required %}    json_body["{{ p.name }}"] = {{ p.python_name }}
+{% else %}    if {{ p.python_name }} is not None:
+        json_body["{{ p.name }}"] = {{ p.python_name }}
+{% endif %}{% endif %}{% endfor %}    if json_body:
+        request_kwargs["json"] = json_body
+{% endif %}{% endif %}
+
+    try:
+        response = await request_with_retry(
+            ctx.client,
+            "{{ tool.http_method }}",
+            path,
+            max_retries=ctx.max_retries,
+            backoff_seconds=ctx.backoff_seconds,
+            request_kwargs=request_kwargs,
+            allow_unsafe_retries=ctx.retry_unsafe_methods,
+        )
+        response.raise_for_status()
+{% if tool.response_content_type and "json" in tool.response_content_type %}        if response.content:
+            try:
+                payload = response.json()
+            except ValueError as exc:
+{% if tool.response_type == "str" %}                return response.text
+{% else %}                raise ValueError("Expected JSON response but received non-JSON payload") from exc
+{% endif %}
+        else:
+            payload = None
+{% if tool.structured_output %}        return TypeAdapter({{ tool.response_type }}).validate_python(payload)
+{% else %}        return payload
+{% endif %}
+{% elif tool.response_content_type == "application/octet-stream" %}        return response.content
+{% else %}        return response.text
+{% endif %}
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(f"API error {exc.response.status_code}: {exc.response.text}") from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"Request failed: {exc}") from exc

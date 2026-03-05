@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: GitHub Issues API (Subset)
+  version: "2022-11-28"
+  description: Minimal subset of GitHub REST API for issue workflows.
+servers:
+  - url: https://api.github.com
+security:
+  - BearerAuth: []
+paths:
+  /repos/{owner}/{repo}/issues:
+    parameters:
+      - name: owner
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: repo
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listRepoIssues
+      tags: [issues]
+      summary: List repository issues
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, closed, all]
+        - name: per_page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "200":
+          description: A list of issues.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Issue"
+    post:
+      operationId: createRepoIssue
+      tags: [issues]
+      summary: Create an issue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIssueRequest"
+      responses:
+        "201":
+          description: Created issue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+  /repos/{owner}/{repo}/issues/{issue_number}:
+    parameters:
+      - name: owner
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: repo
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: issue_number
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getRepoIssue
+      tags: [issues]
+      summary: Get a single issue
+      responses:
+        "200":
+          description: Issue details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    UserRef:
+      type: object
+      required: [login, id]
+      properties:
+        login:
+          type: string
+        id:
+          type: integer
+    Label:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        color:
+          type: string
+          pattern: "^[0-9a-fA-F]{6}$"
+    Issue:
+      type: object
+      required: [id, number, title, state, user]
+      properties:
+        id:
+          type: integer
+        number:
+          type: integer
+        title:
+          type: string
+          maxLength: 256
+        body:
+          type: string
+        state:
+          type: string
+          enum: [open, closed]
+        user:
+          $ref: "#/components/schemas/UserRef"
+        labels:
+          type: array
+          items:
+            $ref: "#/components/schemas/Label"
+        created_at:
+          type: string
+          format: date-time
+    CreateIssueRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 256
+        body:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string

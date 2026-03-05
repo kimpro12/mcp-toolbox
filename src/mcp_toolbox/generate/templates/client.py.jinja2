@@ -1,0 +1,179 @@
+"""HTTP client utilities for {{ server_title }} MCP server."""
+from __future__ import annotations
+
+import asyncio
+import os
+from dataclasses import dataclass
+
+import httpx
+
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+IDEMPOTENT_METHODS = {"GET", "HEAD", "OPTIONS", "DELETE"}
+
+
+@dataclass
+class ClientSettings:
+    """Runtime HTTP settings loaded from environment variables."""
+
+    connect_timeout: float = 5.0
+    read_timeout: float = 30.0
+    write_timeout: float = 10.0
+    pool_timeout: float = 5.0
+    max_retries: int = 2
+    backoff_seconds: float = 0.5
+    retry_unsafe_methods: bool = False
+
+
+def load_client_settings(prefix: str) -> ClientSettings:
+    """Load client retry/timeout settings from env vars.
+
+    Env vars (preferred):
+      - {prefix}_TIMEOUT_CONNECT_SECONDS
+      - {prefix}_TIMEOUT_READ_SECONDS
+      - {prefix}_TIMEOUT_WRITE_SECONDS
+      - {prefix}_TIMEOUT_POOL_SECONDS
+      - {prefix}_RETRY_MAX_ATTEMPTS
+      - {prefix}_RETRY_BACKOFF_SECONDS
+      - {prefix}_RETRY_UNSAFE_METHODS
+
+    Backward compatible aliases are also supported:
+      - {prefix}_HTTP_CONNECT_TIMEOUT
+      - {prefix}_HTTP_READ_TIMEOUT
+      - {prefix}_HTTP_WRITE_TIMEOUT
+      - {prefix}_HTTP_POOL_TIMEOUT
+      - {prefix}_HTTP_MAX_RETRIES
+      - {prefix}_HTTP_BACKOFF_SECONDS
+    """
+
+    return ClientSettings(
+        connect_timeout=_env_float(
+            f"{prefix}_TIMEOUT_CONNECT_SECONDS",
+            _env_float(f"{prefix}_HTTP_CONNECT_TIMEOUT", 5.0),
+        ),
+        read_timeout=_env_float(
+            f"{prefix}_TIMEOUT_READ_SECONDS",
+            _env_float(f"{prefix}_HTTP_READ_TIMEOUT", 30.0),
+        ),
+        write_timeout=_env_float(
+            f"{prefix}_TIMEOUT_WRITE_SECONDS",
+            _env_float(f"{prefix}_HTTP_WRITE_TIMEOUT", 10.0),
+        ),
+        pool_timeout=_env_float(
+            f"{prefix}_TIMEOUT_POOL_SECONDS",
+            _env_float(f"{prefix}_HTTP_POOL_TIMEOUT", 5.0),
+        ),
+        max_retries=max(
+            0,
+            _env_int(
+                f"{prefix}_RETRY_MAX_ATTEMPTS",
+                _env_int(f"{prefix}_HTTP_MAX_RETRIES", 2),
+            ),
+        ),
+        backoff_seconds=max(
+            0.0,
+            _env_float(
+                f"{prefix}_RETRY_BACKOFF_SECONDS",
+                _env_float(f"{prefix}_HTTP_BACKOFF_SECONDS", 0.5),
+            ),
+        ),
+        retry_unsafe_methods=_env_bool(f"{prefix}_RETRY_UNSAFE_METHODS", False),
+    )
+
+
+def build_client(
+    base_url: str,
+    settings: ClientSettings,
+    auth: httpx.Auth | None = None,
+) -> httpx.AsyncClient:
+    """Construct a shared async HTTP client for tool requests."""
+
+    return httpx.AsyncClient(
+        base_url=base_url,
+        auth=auth,
+        timeout=httpx.Timeout(
+            connect=settings.connect_timeout,
+            read=settings.read_timeout,
+            write=settings.write_timeout,
+            pool=settings.pool_timeout,
+        ),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        follow_redirects=True,
+    )
+
+
+async def request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    path: str,
+    *,
+    max_retries: int,
+    backoff_seconds: float,
+    request_kwargs: dict[str, object] | None = None,
+    allow_unsafe_retries: bool = False,
+) -> httpx.Response:
+    """Execute an HTTP request with exponential backoff for retryable failures.
+
+    By default retries are only applied to idempotent methods. Set
+    ``allow_unsafe_retries=True`` to permit retries for non-idempotent methods.
+    """
+
+    kwargs = request_kwargs or {}
+    method_upper = method.upper()
+    can_retry = method_upper in IDEMPOTENT_METHODS or allow_unsafe_retries
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.request(method, path, **kwargs)
+        except httpx.RequestError:
+            if not can_retry or attempt >= max_retries:
+                raise
+            await asyncio.sleep(backoff_seconds * (2**attempt))
+            continue
+
+        if response.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries and can_retry:
+            await asyncio.sleep(backoff_seconds * (2**attempt))
+            continue
+
+        return response
+
+    # Defensive fallback (should never happen due loop return paths).
+    raise RuntimeError("Retry loop exited unexpectedly.")
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read float env var with graceful fallback."""
+
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read int env var with graceful fallback."""
+
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Read bool env var with graceful fallback."""
+
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default

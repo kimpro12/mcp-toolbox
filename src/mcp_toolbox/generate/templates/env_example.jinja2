@@ -1,0 +1,24 @@
+# {{ server_title }} MCP Server Configuration
+{{ server_name | upper }}_BASE_URL={{ base_url }}
+
+# HTTP client reliability settings
+{{ server_name | upper }}_TIMEOUT_CONNECT_SECONDS=5.0
+{{ server_name | upper }}_TIMEOUT_READ_SECONDS=30.0
+{{ server_name | upper }}_TIMEOUT_WRITE_SECONDS=10.0
+{{ server_name | upper }}_TIMEOUT_POOL_SECONDS=5.0
+{{ server_name | upper }}_RETRY_MAX_ATTEMPTS=2
+{{ server_name | upper }}_RETRY_BACKOFF_SECONDS=0.5
+{{ server_name | upper }}_RETRY_UNSAFE_METHODS=false
+
+{% if auth.auth_type.value == "bearer" %}{{ auth.env_var_name }}=your-bearer-token
+{% elif auth.auth_type.value == "oauth2" %}# Preferred pre-fetched OAuth2 token
+{{ auth.env_var_name }}=your-access-token
+# Optional client-credentials bootstrap inputs
+{{ auth.client_id_env_var }}=your-client-id
+{{ auth.client_secret_env_var }}=your-client-secret
+{{ server_name | upper }}_TOKEN_URL={{ auth.token_url }}
+{{ server_name | upper }}_SCOPES={{ auth.scopes | join(' ') }}
+{% elif auth.auth_type.value in ["api_key_header", "api_key_query", "api_key_cookie"] %}{{ auth.env_var_name }}=your-api-key
+{% elif auth.auth_type.value == "basic" %}{{ server_name | upper }}_USERNAME=your-username
+{{ server_name | upper }}_PASSWORD=your-password
+{% endif %}

@@ -1,0 +1,219 @@
+openapi: 3.1.0
+info:
+  title: Petstore API
+  version: 1.0.0
+  description: API for managing pets and store orders.
+servers:
+  - url: https://api.petstore.example.com/v1
+security:
+  - ApiKeyAuth: []
+tags:
+  - name: pets
+    description: Pet management operations
+  - name: store
+    description: Store operations
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pets]
+      summary: List pets
+      description: Returns a paginated list of pets.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of items to return.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Number of items to skip.
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: A list of pets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+        "default":
+          description: Unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: createPet
+      tags: [pets]
+      summary: Create a pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewPet"
+      responses:
+        "201":
+          description: The created pet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /pets/{petId}:
+    parameters:
+      - name: petId
+        in: path
+        required: true
+        description: ID of the pet.
+        schema:
+          type: string
+    get:
+      operationId: getPetById
+      tags: [pets]
+      summary: Get pet by ID
+      responses:
+        "200":
+          description: Pet details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        "404":
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: updatePet
+      tags: [pets]
+      summary: Update an existing pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewPet"
+      responses:
+        "200":
+          description: Updated pet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        "404":
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deletePet
+      tags: [pets]
+      summary: Delete pet by ID
+      responses:
+        "204":
+          description: Pet deleted successfully.
+        "404":
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /store/orders:
+    get:
+      operationId: listOrders
+      tags: [store]
+      summary: List store orders
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Filter orders by status.
+          schema:
+            type: string
+            enum: [pending, completed, cancelled]
+      responses:
+        "200":
+          description: List of orders.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    NewPet:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Pet display name.
+        tag:
+          type: string
+          description: Optional pet tag.
+        status:
+          type: string
+          enum: [available, pending, sold]
+          description: Current pet status.
+    Pet:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Unique pet identifier.
+        name:
+          type: string
+          description: Pet display name.
+        tag:
+          type: string
+          description: Optional pet tag.
+        status:
+          type: string
+          enum: [available, pending, sold]
+          description: Current pet status.
+    Order:
+      type: object
+      required: [id, petId, quantity, status]
+      properties:
+        id:
+          type: string
+        petId:
+          type: string
+        quantity:
+          type: integer
+        status:
+          type: string
+          enum: [pending, completed, cancelled]
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string

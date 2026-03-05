@@ -1,0 +1,14 @@
+"""Tool metadata for {{ server_title }} MCP server."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass
+class ToolMeta:
+    """Metadata descriptor for generated MCP tool."""
+
+    name: str
+    method: str
+    path: str
+    description: str
